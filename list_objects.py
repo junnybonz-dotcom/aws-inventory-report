@@ -1,67 +1,50 @@
+"""List objects in an S3 bucket using paginated ListObjectsV2 calls."""
 import sys
-import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
-
+from botocore.exceptions import BotoCoreError, ClientError
+from aws_config import create_client, resolve_region
+from aws_errors import report_aws_error
 
 def format_size(num_bytes):
-    for unit in ["B", "KB", "MB", "GB"]:
-        if num_bytes < 1024:
-            return f"{num_bytes:.0f} {unit}"
-        num_bytes /= 1024
+    """Format bytes using readable binary units."""
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.0f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
-    return f"{num_bytes:.1f} TB"
+def get_objects(s3, bucket, prefix=""):
+    """Return S3 object key, formatted size, and modified timestamp rows."""
+    rows = []
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            modified = obj["LastModified"].strftime("%Y-%m-%d %H:%M UTC")
+            rows.append((obj["Key"], format_size(obj["Size"]), modified))
+    return rows
 
-
-def list_objects(bucket, prefix=""):
-    s3 = boto3.client("s3")
-    total = 0
-
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    if not args:
+        print("Usage: python list_objects.py <bucket-name> [prefix]", file=sys.stderr)
+        return 2
+    bucket = args[0]
+    prefix = args[1] if len(args) > 1 else ""
     try:
-        paginator = s3.get_paginator("list_objects_v2")
-
-        for page in paginator.paginate(
-            Bucket=bucket,
-            Prefix=prefix
-        ):
-            objects = page.get("Contents", [])
-
-            for obj in objects:
-                modified = obj["LastModified"].strftime(
-                    "%Y-%m-%d %H:%M UTC"
-                )
-
-                print(
-                    f"{obj['Key']:<40} "
-                    f"{format_size(obj['Size']):>9}   "
-                    f"{modified}"
-                )
-
-                total += 1
-
-    except NoCredentialsError:
-        print("Boto3 could not find AWS credentials.")
-        return
-
-    except ClientError as e:
-        code = e.response["Error"]["Code"]
-        print(f"S3 request failed: {code}")
-        return
-
-    if total == 0:
+        region = resolve_region()
+        s3 = create_client("s3", region)
+        rows = get_objects(s3, bucket, prefix)
+    except (BotoCoreError, ClientError) as error:
+        report_aws_error("S3 object listing", error)
+        return 1
+    print(f"S3 OBJECTS | bucket={bucket} | prefix={prefix or '(all)'} | region={region}")
+    if not rows:
         print("No objects found.")
-    else:
-        print(f"Total: {total} objects")
-
+        return 0
+    for key, size, modified in rows:
+        print(f"{key:<40} {size:>9}   {modified}")
+    print(f"Total: {len(rows)} objects")
+    return 0
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(
-            "Usage: python3 list_objects.py "
-            "<bucket-name> [prefix]"
-        )
-        sys.exit(1)
-
-    bucket_name = sys.argv[1]
-    prefix = sys.argv[2] if len(sys.argv) > 2 else ""
-
-    list_objects(bucket_name, prefix)
+    raise SystemExit(main())
