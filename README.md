@@ -1,5 +1,7 @@
 # AWS Inventory Report
 
+[![Python CI](https://github.com/junnybonz-dotcom/aws-inventory-report/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/junnybonz-dotcom/aws-inventory-report/actions/workflows/tests.yml)
+
 A read-only Python command-line inventory tool built with Boto3, the AWS SDK for Python. It retrieves information about S3 buckets and EC2 instances, verifies the active AWS identity, and reports common AWS errors.
 
 ## Features
